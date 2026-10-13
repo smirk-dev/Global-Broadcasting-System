@@ -11,7 +11,7 @@ interface EarthViewerProps {
 }
 
 function Earth({ stations, selectedStation, onStationSelect }: EarthViewerProps) {
-  const earthRef = useRef<THREE.Mesh>(null);
+  const earthRef = useRef<THREE.Group>(null);   // the globe and its stations turn together
   const [earthTexture, setEarthTexture] = useState<THREE.Texture | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -22,12 +22,13 @@ function Earth({ stations, selectedStation, onStationSelect }: EarthViewerProps)
     let isMounted = true;
     const loader = new THREE.TextureLoader();
 
+    // served with the app (three.js's earth_atmos_2048 map), so the globe never depends on a third-party host
     loader.load(
-      'https://upload.wikimedia.org/wikipedia/commons/8/83/Equirectangular_projection_SW.jpg',
+      '/textures/earth.jpg',
       (texture) => {
         if (isMounted) {
-          texture.wrapS = THREE.ClampToEdgeWrapping;
-          texture.wrapT = THREE.ClampToEdgeWrapping;
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.anisotropy = 8;
           setEarthTexture(texture);
           setLoading(false);
         }
@@ -56,24 +57,27 @@ function Earth({ stations, selectedStation, onStationSelect }: EarthViewerProps)
     const theta = (lng + 180) * (Math.PI / 180);
     
     return new THREE.Vector3(
-      radius * Math.sin(phi) * Math.cos(theta),
+      -radius * Math.sin(phi) * Math.cos(theta),   // three's sphere UVs run west to east with x = -cos
       radius * Math.cos(phi),
       radius * Math.sin(phi) * Math.sin(theta)
     );
   };
 
   return (
-    <group>
+    <group ref={earthRef}>
       {/* Earth */}
-      <Sphere ref={earthRef} args={[5, 64, 64]}>
+      <Sphere args={[5, 64, 64]}>
+        {/* the keys make React build a new material when the map arrives: adding a map to the existing
+            material would not recompile its shader, and the globe stayed a flat grey */}
         {earthTexture ? (
           <meshStandardMaterial
+            key="mapped"
             map={earthTexture}
-            metalness={0.2}
-            roughness={0.7}
+            metalness={0}
+            roughness={0.85}
           />
         ) : (
-          <meshStandardMaterial color="#2266cc" />
+          <meshStandardMaterial key="plain" color="#2266cc" />
         )}
       </Sphere>
 
@@ -180,8 +184,10 @@ export default function EarthViewer(props: EarthViewerProps) {
     <div className="w-full h-full bg-black">
       <Canvas>
         <CameraController />
-        <ambientLight intensity={0.8} />
-        <pointLight position={[10, 10, 10]} intensity={1} />
+        {/* three r155+ lights are physical: a point light 17 units away at intensity 1 is almost nothing,
+            so a directional "sun" lights the day side and the ambient keeps the night side readable */}
+        <ambientLight intensity={0.9} />
+        <directionalLight position={[8, 4, 10]} intensity={2.4} />
         <Stars radius={300} depth={60} count={20000} factor={4} saturation={0} fade speed={1} />
         <Earth {...props} />
         <OrbitControls 
